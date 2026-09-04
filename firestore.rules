@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userProfile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isApproved() { return signedIn() && userProfile().data.role in ["Admin", "Executive Member"]; }
+    function isAdmin() { return isApproved() && userProfile().data.role == "Admin"; }
+    function isExecutive() { return isApproved() && userProfile().data.role == "Executive Member"; }
+    function ownCommittee(committeeId) { return isExecutive() && userProfile().data.committeeId == committeeId; }
+
+    match /setup/bootstrap {
+      allow read: if signedIn();
+      allow update: if signedIn()
+        && resource.data.initialized == false
+        && request.resource.data.initialized == true
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "Admin";
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.role == "Admin"
+          && get(/databases/$(database)/documents/setup/bootstrap).data.initialized == false
+          && getAfter(/databases/$(database)/documents/setup/bootstrap).data.initialized == true);
+      allow update, delete: if isAdmin();
+    }
+
+    match /committees/{committeeId} {
+      allow read: if isAdmin() || ownCommittee(committeeId);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /meetingDates/{meetingId} {
+      allow read: if isApproved();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /committeeReports/{reportId} {
+      allow read: if isAdmin() || ownCommittee(resource.data.committeeId);
+      allow create: if isAdmin()
+        || (ownCommittee(request.resource.data.committeeId)
+          && request.resource.data.submittedBy == request.auth.uid
+          && request.resource.data.certified == true);
+      allow update: if isAdmin()
+        || (ownCommittee(resource.data.committeeId)
+          && request.resource.data.committeeId == resource.data.committeeId
+          && request.resource.data.submittedBy == resource.data.submittedBy
+          && resource.data.submittedBy == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

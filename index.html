@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Alpha Psi Committee Reports</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main id="app">
+    <section id="authScreen" class="screen active">
+      <div class="login-panel">
+        <div class="brand-lockup">
+          <div class="brand-mark">ΑΨ</div>
+          <div>
+            <h1>Alpha Psi Committee Reports</h1>
+            <p>Kappa Kappa Psi · Alpha Psi Chapter</p>
+          </div>
+        </div>
+
+        <div id="authMessage" class="message hidden"></div>
+
+        <form id="loginForm" class="form-grid">
+          <label>Email<input id="loginEmail" type="email" required autocomplete="email"></label>
+          <label>Password<input id="loginPassword" type="password" required autocomplete="current-password"></label>
+          <button class="primary" type="submit">Sign In</button>
+        </form>
+
+        <button id="showBootstrapBtn" class="link-button" type="button">First-time Admin Setup</button>
+
+        <form id="bootstrapForm" class="form-grid hidden">
+          <h2>Create First Admin</h2>
+          <label>Name<input id="bootstrapName" required></label>
+          <label>Email<input id="bootstrapEmail" type="email" required></label>
+          <label>Password<input id="bootstrapPassword" type="password" minlength="6" required></label>
+          <button class="primary" type="submit">Create Admin Account</button>
+          <button id="cancelBootstrapBtn" class="secondary" type="button">Cancel</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="mainScreen" class="screen">
+      <header class="topbar">
+        <div>
+          <strong>Alpha Psi Committee Reports</strong>
+          <span id="userSummary"></span>
+        </div>
+        <button id="logoutBtn" class="secondary">Sign Out</button>
+      </header>
+
+      <div class="content">
+        <nav id="nav" class="nav-tabs"></nav>
+        <div id="message" class="message hidden"></div>
+
+        <section id="dashboardView" class="view"></section>
+        <section id="reportView" class="view hidden"></section>
+        <section id="submissionsView" class="view hidden"></section>
+        <section id="committeesView" class="view hidden"></section>
+        <section id="meetingsView" class="view hidden"></section>
+        <section id="usersView" class="view hidden"></section>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
