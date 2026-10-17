@@ -216,7 +216,7 @@ auth.onAuthStateChanged(async user => {
    setMessage("Only Attendance Portal Admins and Executive Members may access Committee Reports.","error",true);
    await auth.signOut();return;
   }
-  window.attendanceExecutiveRoster=(source.data()?.state?.members||[]).filter(m=>["Admin","Executive Member"].includes(m.role)).map(m=>({id:String(m.uid||m.authUid||""),name:m.name||[m.firstName,m.lastName].filter(Boolean).join(" "),email:m.email||"",role:m.role})).filter(m=>m.id);
+  window.attendanceExecutiveRoster=(source.data()?.state?.members||[]).filter(m=>["Admin","Executive Member"].includes(m.role)).map(m=>({id:String(m.uid||m.authUid||m.id||""),name:m.name||[m.firstName,m.lastName].filter(Boolean).join(" "),email:m.email||"",role:m.role})).filter(m=>m.id);
   const snap=await db.doc("committeeUsers/"+user.uid).get();
   const profile=snap.data()||{};
   currentProfile={id:user.uid,name:member.name||[member.firstName,member.lastName].filter(Boolean).join(" ")||user.email,
