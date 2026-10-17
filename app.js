@@ -462,6 +462,7 @@ function renderDashboard() {
           including weeks when the committee does not meet.
         </p>
       </div>
+      <div class="panel"><h3>Missing Reports by Committee</h3>${committees.map(c => `<p><strong>${esc(c.name)}</strong> — ${getCommitteeMissingDates(c).length} missing ${getCommitteeMissingDates(c).slice(0,5).map(d => `<span class="badge missing">${esc(d)}</span>`).join(" ")}</p>`).join("") || "<p>No committees configured.</p>"}</div>
     `;
 
     return;
@@ -1026,7 +1027,7 @@ function renderSubmissions() {
     <div class="panel">
 
       <div class="section-head">
-        <h2>All Committee Reports</h2>
+        <h2>All Committee Reports</h2><button id="exportReportsBtn" class="secondary" type="button">Export CSV</button><button id="printReportsBtn" class="secondary" type="button">Print / Save PDF</button>
         <label>Show <select id="submissionStatusFilter"><option value="all">All reports</option><option value="missing">Missing only</option><option value="submitted">Submitted only</option></select></label>
       </div>
 
@@ -1062,6 +1063,12 @@ function renderSubmissions() {
       </div>
     </div>
   `;
+  $("exportReportsBtn").onclick = () => {
+    const fields = ["meetingDate","committeeName","scheduledDay","scheduledTime","submittedByName","didMeet","didMeetOther","attendees","discussion","certified"];
+    const csv = [fields.join(","),...reports.map(r => fields.map(f => '"' + String(Array.isArray(r[f]) ? r[f].join("; ") : (r[f] ?? "")).replace(/"/g,'""') + '"').join(","))].join("\\r\\n");
+    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"})); link.download = "alpha-psi-committee-reports.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(link.href),1000);
+  };
+  $("printReportsBtn").onclick = () => window.print();
   $("submissionStatusFilter").value = submissionsStatusFilter;
   $("submissionStatusFilter").onchange = e => { submissionsStatusFilter = e.target.value; renderSubmissions(); };
 }
@@ -1380,6 +1387,7 @@ function renderUsers() {
               )?.name || "—"
             )}
           </td>
+          <td>${user.role === "Executive Member" ? `<button class="secondary editUserBtn" data-id="${esc(user.id)}">Change Assignment</button>` : "—"}</td>
         </tr>
       `
     )
@@ -1460,7 +1468,7 @@ function renderUsers() {
               <th>Name</th>
               <th>Email</th>
               <th>Role</th>
-              <th>Committee</th>
+              <th>Committee</th><th>Actions</th>
             </tr>
           </thead>
 
@@ -1470,7 +1478,7 @@ function renderUsers() {
               `
               <tr>
                 <td
-                  colspan="4"
+                  colspan="5"
                   class="muted"
                 >
                   No users yet.
@@ -1484,6 +1492,15 @@ function renderUsers() {
       </div>
     </div>
   `;
+
+  document.querySelectorAll(".editUserBtn").forEach(button => button.onclick = async () => {
+    const user = users.find(u => u.id === button.dataset.id);
+    if (!user) return;
+    const choice = prompt("Enter the committee ID for " + user.name + ":\n" + committees.map(c => c.id + " — " + c.name).join("\n"), user.committeeId || "");
+    if (choice === null) return;
+    if (!committees.some(c => c.id === choice.trim())) { setMessage("Choose a valid committee ID.", "error"); return; }
+    try { await db.doc(`users/${user.id}`).update({committeeId:choice.trim()}); await loadData(); renderAll(); setMessage("Committee assignment updated."); } catch (err) { setMessage(err.message,"error"); }
+  });
 
   $("userForm").onsubmit = async e => {
     e.preventDefault();
