@@ -216,8 +216,8 @@ auth.onAuthStateChanged(async user => {
    setMessage("Only Attendance Portal Admins and Executive Members may access Committee Reports.","error",true);
    await auth.signOut();return;
   }
-  window.attendanceExecutiveRoster=(source.data()?.state?.members||[]).filter(m=>["Admin","Executive Member"].includes(m.role)).map(m=>({id:String(m.uid||m.authUid||m.id||""),name:m.name||[m.firstName,m.lastName].filter(Boolean).join(" "),email:m.email||"",role:m.role})).filter(m=>m.id);
-  const snap=await db.doc("committeeUsers/"+user.uid).get();
+  window.attendanceExecutiveRoster=(source.data()?.state?.members||[]).filter(m=>["Admin","Executive Member"].includes(m.role)).map(m=>({id:String(m.id||""),name:m.name||[m.firstName,m.lastName].filter(Boolean).join(" "),email:m.email||"",role:m.role})).filter(m=>m.id);
+  const snap=await db.doc("committeeUsers/"+String(member.id)).get();
   const profile=snap.data()||{};
   currentProfile={id:user.uid,name:member.name||[member.firstName,member.lastName].filter(Boolean).join(" ")||user.email,
    email:user.email,role:member.role,committeeId:profile.committeeId||null};
@@ -272,6 +272,7 @@ async function loadData() {
   committees = admin ? committeeSnap.docs.map(doc => ({id:doc.id,...doc.data()})) : currentProfile.committeeId ? await db.doc("committees/"+currentProfile.committeeId).get().then(doc=>doc.exists?[{id:doc.id,...doc.data()}]:[]) : [];
 
   let reportQuery = db.collection("committeeReports");
+  if (!admin && !currentProfile.committeeId) { reports=[];users=[];return; }
 
   if (!admin) {
     reportQuery = reportQuery.where(
@@ -293,7 +294,7 @@ async function loadData() {
 
     users = userSnap.docs.map(doc => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),role: "Executive Member"
     }));
   } else {
     users = [];
