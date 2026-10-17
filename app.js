@@ -216,6 +216,7 @@ auth.onAuthStateChanged(async user => {
    setMessage("Only Attendance Portal Admins and Executive Members may access Committee Reports.","error",true);
    await auth.signOut();return;
   }
+  window.attendanceExecutiveRoster=(source.data()?.state?.members||[]).filter(m=>["Admin","Executive Member"].includes(m.role)).map(m=>({id:String(m.uid||m.authUid||""),name:m.name||[m.firstName,m.lastName].filter(Boolean).join(" "),email:m.email||"",role:m.role})).filter(m=>m.id);
   const snap=await db.doc("committeeUsers/"+user.uid).get();
   const profile=snap.data()||{};
   currentProfile={id:user.uid,name:member.name||[member.firstName,member.lastName].filter(Boolean).join(" ")||user.email,
@@ -1264,245 +1265,23 @@ function renderCommittees() {
 /* ---------- USERS ---------- */
 
 function renderUsers() {
-  const options = committees
-    .map(
-      committee => `
-        <option value="${committee.id}">
-          ${esc(committee.name)}
-        </option>
-      `
-    )
-    .join("");
-
-  const rows = users
-    .map(
-      user => `
-        <tr>
-          <td>${esc(user.name)}</td>
-          <td>${esc(user.email)}</td>
-          <td>${esc(user.role)}</td>
-          <td>
-            ${esc(
-              committees.find(
-                c =>
-                  c.id === user.committeeId
-              )?.name || "—"
-            )}
-          </td>
-          <td>${user.role === "Executive Member" ? `<button class="secondary editUserBtn" data-id="${esc(user.id)}">Change Assignment</button>` : "—"}</td>
-        </tr>
-      `
-    )
-    .join("");
-
-  $("usersView").innerHTML = `
-    <div class="panel"><h2>Import from Attendance Site</h2><p class="muted">Sign in with an Attendance Site Admin account to preview Executive Members. Import approved Executive profiles. Members can then create their Committee Reports login automatically using their Attendance credentials.</p><form id="attendanceImportForm" class="form-grid"><label>Attendance Admin email<input id="attendanceImportEmail" type="email" autocomplete="off" required></label><label>Attendance Admin password<input id="attendanceImportPassword" type="password" autocomplete="off" required></label><button class="primary" type="submit">Preview Executive Roster</button></form><div id="attendanceImportPreview"></div></div>
-    <div class="panel">
-
-      <div class="section-head">
-        <h2>Add Executive Member</h2>
-      </div>
-
-      <form
-        id="userForm"
-        class="form-grid"
-      >
-
-        <label>
-          Name
-          <input
-            id="newUserName"
-            required
-          >
-        </label>
-
-        <label>
-          Email
-          <input
-            id="newUserEmail"
-            type="email"
-            required
-          >
-        </label>
-
-        <label>
-          Temporary Password
-          <input
-            id="newUserPassword"
-            type="password"
-            minlength="6"
-            required
-          >
-        </label>
-
-        <label>
-          Committee
-
-          <select
-            id="newUserCommittee"
-            required
-          >
-            <option value="">
-              Choose committee…
-            </option>
-
-            ${options}
-          </select>
-        </label>
-
-        <button
-          class="primary"
-          type="submit"
-        >
-          Create Executive Member
-        </button>
-
-      </form>
-    </div>
-
-    <div class="panel">
-
-      <div class="table-wrap">
-
-        <table>
-
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Committee</th><th>Actions</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            ${
-              rows ||
-              `
-              <tr>
-                <td
-                  colspan="5"
-                  class="muted"
-                >
-                  No users yet.
-                </td>
-              </tr>
-              `
-            }
-          </tbody>
-
-        </table>
-      </div>
-    </div>
-  `;
-
-  $("attendanceImportForm").onsubmit = async e => {
-    e.preventDefault();
-    const button = e.target.querySelector("button"); button.disabled = true;
-    try {
-      const roster = await AttendanceImport.loadRoster($("attendanceImportEmail").value.trim(), $("attendanceImportPassword").value);
-      $("attendanceImportPassword").value = "";
-      const existingEmails = new Set(users.map(u => String(u.email || "").toLowerCase()));
-      const pending = roster.filter(m => !existingEmails.has(m.email));
-      $("attendanceImportPreview").innerHTML = "<h3>Executive Members found: " + roster.length + "</h3><p>" + pending.length + " new profiles; existing users will not be overwritten.</p>" + pending.map(m => "<p>" + esc(m.name) + " — " + esc(m.email) + "</p>").join("") + (pending.length ? '<button id="confirmAttendanceImport" class="primary" type="button">Import Profiles</button>' : "");
-      const confirm = $("confirmAttendanceImport");
-      if (confirm) confirm.onclick = async () => {
-        confirm.disabled = true;
-        try {
-          let imported = 0;
-          for (const member of pending) {
-            const id = "attendance-" + member.attendanceId.replace(/[^a-zA-Z0-9_-]/g, "");
-            if (!member.attendanceId) continue;
-            await db.collection("attendanceImports").doc(id).set({
-              name: member.name, email: member.email, attendanceId: member.attendanceId,
-              committee: member.committee, importedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, {merge:true});
-            await db.collection("approvedExecutives").doc(member.email).set({
-              name:member.name,email:member.email,attendanceId:member.attendanceId,
-              active:true,approvedAt:firebase.firestore.FieldValue.serverTimestamp()
-            },{merge:true});
-            imported++;
-          }
-          setMessage(imported + " Executive profiles imported. Members can now sign in with their Attendance credentials; assign their committees in Users.");
-          $("attendanceImportPreview").innerHTML = "";
-        } catch (error) { setMessage(error.message, "error"); confirm.disabled = false; }
-      };
-    } catch (error) { setMessage(error.message, "error"); }
-    finally { button.disabled = false; }
-  };
-  document.querySelectorAll(".editUserBtn").forEach(button => button.onclick = async () => {
-    const user = users.find(u => u.id === button.dataset.id);
-    if (!user) return;
-    const choice = prompt("Enter the committee ID for " + user.name + ":\n" + committees.map(c => c.id + " — " + c.name).join("\n"), user.committeeId || "");
-    if (choice === null) return;
-    if (!committees.some(c => c.id === choice.trim())) { setMessage("Choose a valid committee ID.", "error"); return; }
-    try { await db.doc(`committeeUsers/${user.id}`).update({committeeId:choice.trim()}); await loadData(); renderAll(); setMessage("Committee assignment updated."); } catch (err) { setMessage(err.message,"error"); }
-  });
-
-  $("userForm").onsubmit = async e => {
-    e.preventDefault();
-
-    let secondary = null;
-
-    try {
-      secondary =
-        firebase.initializeApp(
-          firebaseConfig,
-          `Secondary-${Date.now()}`
-        );
-
-      const cred =
-        await secondary
-          .auth()
-          .createUserWithEmailAndPassword(
-            $("newUserEmail")
-              .value
-              .trim(),
-
-            $("newUserPassword").value
-          );
-
-      await db
-        .doc(`users/${cred.user.uid}`)
-        .set({
-          name:
-            $("newUserName")
-              .value
-              .trim(),
-
-          email:
-            $("newUserEmail")
-              .value
-              .trim(),
-
-          role:
-            "Executive Member",
-
-          committeeId:
-            $("newUserCommittee").value,
-
-          createdAt:
-            firebase.firestore.FieldValue.serverTimestamp()
-        });
-
-      await secondary.auth().signOut();
-      await secondary.delete();
-
-      await loadData();
-      renderAll();
-
-      setMessage(
-        "Executive Member account created."
-      );
-    } catch (err) {
-      try {
-        if (secondary) {
-          await secondary.auth().signOut();
-          await secondary.delete();
-        }
-      } catch (_) {}
-
-      setMessage(err.message, "error");
-    }
-  };
+ const roster=window.attendanceExecutiveRoster||[];
+ const rows=roster.map(m=>{
+   const assignment=users.find(u=>u.id===m.id);
+   const committee=committees.find(c=>c.id===assignment?.committeeId);
+   return '<tr><td>'+esc(m.name)+'</td><td>'+esc(m.email)+'</td><td>'+esc(m.role)+'</td><td>'+esc(committee?.name||'Unassigned')+'</td><td><button class="secondary assignCommittee" data-id="'+esc(m.id)+'">Assign Committee</button></td></tr>';
+ }).join('');
+ $("usersView").innerHTML='<div class="panel"><h2>Attendance Executive Roster</h2><p>Automatically sourced from Attendance Portal. No imports or duplicate accounts.</p><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Committee</th><th>Actions</th></tr></thead><tbody>'+ (rows||'<tr><td colspan="5">No Executive Members found.</td></tr>')+'</tbody></table></div></div>';
+ document.querySelectorAll(".assignCommittee").forEach(button=>button.onclick=async()=>{
+  const id=button.dataset.id;
+  const member=roster.find(m=>m.id===id);
+  const options=committees.map(c=>c.id+' — '+c.name).join('\n');
+  const choice=prompt('Committee ID for '+member.name+':\n'+options,users.find(u=>u.id===id)?.committeeId||'');
+  if(choice===null)return;
+  if(!committees.some(c=>c.id===choice.trim())){setMessage('Choose a valid committee ID.','error');return;}
+  try {
+   await db.doc('committeeUsers/'+id).set({committeeId:choice.trim(),name:member.name,email:member.email},{merge:true});
+   await loadData();renderAll();setMessage('Committee assignment saved.');
+  }catch(err){setMessage(err.message,'error');}
+ });
 }
