@@ -194,152 +194,36 @@ $("cancelBootstrapBtn").onclick = () => {
 $("logoutBtn").onclick = () => auth.signOut();
 
 $("loginForm").onsubmit = async e => {
-  e.preventDefault();
-  const email = $("loginEmail").value.trim().toLowerCase();
-  const password = $("loginPassword").value;
-  try {
-    await auth.signInWithEmailAndPassword(email,password);
-  } catch (err) {
-    if (!["auth/user-not-found","auth/invalid-credential"].includes(err.code)) {
-      setMessage(err.message,"error",true); return;
-    }
-    try {
-      const sourceApp = firebase.initializeApp({
-        apiKey:"AIzaSyA2I8qSLHJg1672k51cCQaHSFMblB4yUew",
-        authDomain:"alphapsi-pointtracker.firebaseapp.com",
-        projectId:"alphapsi-pointtracker",
-        appId:"1:428688680473:web:e3e81709e8f4f1af8fac88"
-      },"attendance-verify-"+Date.now());
-      try {
-        await sourceApp.auth().signInWithEmailAndPassword(email,password);
-        const snap = await sourceApp.firestore().doc("chapters/alpha-psi").get();
-        const member = (snap.data()?.state?.members||[]).find(m=>String(m.email||"").toLowerCase()===email && m.role==="Executive Member");
-        if (!member) throw Error("Your Attendance account is not an Executive Member.");
-        const credential = await auth.createUserWithEmailAndPassword(email,password);
-        await credential.user.sendEmailVerification();
-        setMessage("Check your school email to verify your new account, then sign in again.","good",true);
-        await auth.signOut();
-      } finally {await sourceApp.auth().signOut().catch(()=>{});await sourceApp.delete();}
-    } catch (error) {setMessage(error.message,"error",true);}
-  }
+ e.preventDefault();
+ try { await auth.signInWithEmailAndPassword($("loginEmail").value.trim(),$("loginPassword").value); }
+ catch(err) {setMessage(err.message,"error",true);}
 };
 
-$("bootstrapForm").onsubmit = async e => {
-  e.preventDefault();
-
-  const name = $("bootstrapName").value.trim();
-  const email = $("bootstrapEmail").value.trim();
-  const password = $("bootstrapPassword").value;
-
-  let cred = null;
-
-  try {
-    cred = await auth.createUserWithEmailAndPassword(email, password);
-
-    const uid = cred.user.uid;
-
-    await db.runTransaction(async tx => {
-      const setupRef = db.doc("setup/bootstrap");
-      const userRef = db.doc(`users/${uid}`);
-
-      const snap = await tx.get(setupRef);
-
-      if (!snap.exists || snap.data().initialized !== false) {
-        throw new Error(
-          "First-time setup has already been completed."
-        );
-      }
-
-      tx.set(userRef, {
-        name,
-        email,
-        role: "Admin",
-        committeeId: null,
-        createdAt:
-          firebase.firestore.FieldValue.serverTimestamp()
-      });
-
-      tx.update(setupRef, {
-        initialized: true,
-        initializedBy: uid,
-        initializedAt:
-          firebase.firestore.FieldValue.serverTimestamp()
-      });
-    });
-
-    setMessage("Admin account created.", "good", true);
-  } catch (err) {
-    if (cred?.user) {
-      try {
-        await cred.user.delete();
-      } catch (_) {}
-    }
-
-    setMessage(err.message, "error", true);
-  }
+$("bootstrapForm").onsubmit = e => {
+ e.preventDefault();
+ setMessage("Use your existing Attendance Portal Admin account to sign in.","error",true);
 };
 
 /* ---------- AUTH STATE ---------- */
 
 auth.onAuthStateChanged(async user => {
-  currentUser = user;
-
-  if (!user) {
-    currentProfile = null;
-
-    $("mainScreen").classList.remove("active");
-    $("authScreen").classList.add("active");
-
-    return;
+ currentUser=user;
+ if(!user){currentProfile=null;$("mainScreen").classList.remove("active");$("authScreen").classList.add("active");return;}
+ try {
+  const source=await db.doc("chapters/alpha-psi").get();
+  const member=(source.data()?.state?.members||[]).find(m=>String(m.email||"").trim().toLowerCase()===String(user.email||"").trim().toLowerCase());
+  if(!member || !["Admin","Executive Member"].includes(member.role)) {
+   setMessage("Only Attendance Portal Admins and Executive Members may access Committee Reports.","error",true);
+   await auth.signOut();return;
   }
-
-  try {
-    const snap = await db.doc(`users/${user.uid}`).get();
-
-    if (!snap.exists) {
-      if (user.emailVerified) {
-        try {
-          const approval = await db.collection("approvedExecutives").doc(user.email.toLowerCase()).get();
-          if (approval.exists && approval.data().active === true) {
-            await db.doc("users/"+user.uid).set({name:approval.data().name||user.email,email:user.email.toLowerCase(),role:"Executive Member",committeeId:approval.data().committeeId||null,source:"attendance",createdAt:firebase.firestore.FieldValue.serverTimestamp()});
-            window.location.reload(); return;
-          }
-        } catch (error) {setMessage(error.message,"error",true);}
-      }
-      if (!$("bootstrapForm").classList.contains("hidden")) {
-        return;
-      }
-
-      setMessage(
-        user.emailVerified ? "An Admin must first import your Executive profile from Attendance." : "Verify your school email before signing in. Check your inbox.",
-        "error",
-        true
-      );
-
-      await auth.signOut();
-      return;
-    }
-
-    currentProfile = {
-      id: snap.id,
-      ...snap.data()
-    };
-
-    $("authScreen").classList.remove("active");
-    $("mainScreen").classList.add("active");
-
-    $("userSummary").textContent =
-      `${currentProfile.name} · ${currentProfile.role}`;
-
-    buildNav();
-
-    await loadData();
-
-    renderAll();
-    showView("dashboard");
-  } catch (err) {
-    setMessage(err.message, "error", true);
-  }
+  const snap=await db.doc("committeeUsers/"+user.uid).get();
+  const profile=snap.data()||{};
+  currentProfile={id:user.uid,name:member.name||[member.firstName,member.lastName].filter(Boolean).join(" ")||user.email,
+   email:user.email,role:member.role,committeeId:profile.committeeId||null};
+  $("authScreen").classList.remove("active");$("mainScreen").classList.add("active");
+  $("userSummary").textContent=currentProfile.name+" · "+currentProfile.role;
+  buildNav();await loadData();renderAll();showView("dashboard");
+ }catch(err){setMessage(err.message,"error",true);}
 });
 
 /* ---------- NAV ---------- */
@@ -382,15 +266,9 @@ function buildNav() {
 async function loadData() {
   const admin = currentProfile.role === "Admin";
 
-  const committeeSnap = await db
-    .collection("committees")
-    .orderBy("name")
-    .get();
+  const committeeSnap = admin ? await db.collection("committees").orderBy("name").get() : null;
 
-  committees = committeeSnap.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  }));
+  committees = admin ? committeeSnap.docs.map(doc => ({id:doc.id,...doc.data()})) : currentProfile.committeeId ? await db.doc("committees/"+currentProfile.committeeId).get().then(doc=>doc.exists?[{id:doc.id,...doc.data()}]:[]) : [];
 
   let reportQuery = db.collection("committeeReports");
 
@@ -410,10 +288,7 @@ async function loadData() {
   }));
 
   if (admin) {
-    const userSnap = await db
-      .collection("users")
-      .orderBy("name")
-      .get();
+    const userSnap = await db.collection("committeeUsers").get();
 
     users = userSnap.docs.map(doc => ({
       id: doc.id,
@@ -1561,7 +1436,7 @@ function renderUsers() {
     const choice = prompt("Enter the committee ID for " + user.name + ":\n" + committees.map(c => c.id + " — " + c.name).join("\n"), user.committeeId || "");
     if (choice === null) return;
     if (!committees.some(c => c.id === choice.trim())) { setMessage("Choose a valid committee ID.", "error"); return; }
-    try { await db.doc(`users/${user.id}`).update({committeeId:choice.trim()}); await loadData(); renderAll(); setMessage("Committee assignment updated."); } catch (err) { setMessage(err.message,"error"); }
+    try { await db.doc(`committeeUsers/${user.id}`).update({committeeId:choice.trim()}); await loadData(); renderAll(); setMessage("Committee assignment updated."); } catch (err) { setMessage(err.message,"error"); }
   });
 
   $("userForm").onsubmit = async e => {
