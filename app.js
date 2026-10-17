@@ -3,6 +3,8 @@ let currentProfile = null;
 let committees = [];
 let reports = [];
 let users = [];
+let selectedReportDate = null;
+let submissionsStatusFilter = 'all';
 
 const $ = (id) => document.getElementById(id);
 
@@ -541,6 +543,8 @@ function renderDashboard() {
 function getSelectedReportDate(committee) {
   const missing = getCommitteeMissingDates(committee);
 
+  const eligible = getRequiredDates(committee);
+  if (selectedReportDate && eligible.includes(selectedReportDate)) return selectedReportDate;
   if (missing.length) {
     return missing[0];
   }
@@ -622,6 +626,9 @@ function renderReport() {
         <h2>Alpha Psi Chapter Committee Report</h2>
       </div>
 
+      <label class="date-selector">Select Meeting Date
+        <select id="reportDateSelect">${getRequiredDates(committee).slice().reverse().map(date => `<option value="${date}" ${date === meetingDate ? "selected" : ""}>${esc(fmtDate(date))}${reports.some(r => r.committeeId === committee.id && r.meetingDate === date) ? " · Submitted" : " · Missing"}</option>`).join("")}</select>
+      </label>
       <form id="reportForm" class="form-grid">
 
         <label>
@@ -774,6 +781,8 @@ function renderReport() {
       </form>
     </div>
   `;
+
+  $("reportDateSelect").onchange = e => { selectedReportDate = e.target.value; renderReport(); };
 
   document
     .querySelectorAll('input[name="didMeet"]')
@@ -942,7 +951,12 @@ function renderSubmissions() {
     b.date.localeCompare(a.date)
   );
 
-  const rows = expected
+  const visibleExpected = expected.filter(({committee,date}) => {
+    const submitted = reports.some(r => r.committeeId === committee.id && r.meetingDate === date);
+    return submissionsStatusFilter === "all" || (submissionsStatusFilter === "submitted" ? submitted : !submitted);
+  });
+
+  const rows = visibleExpected
     .map(({ committee, date }) => {
       const report = reports.find(
         r =>
@@ -1013,6 +1027,7 @@ function renderSubmissions() {
 
       <div class="section-head">
         <h2>All Committee Reports</h2>
+        <label>Show <select id="submissionStatusFilter"><option value="all">All reports</option><option value="missing">Missing only</option><option value="submitted">Submitted only</option></select></label>
       </div>
 
       <div class="table-wrap">
@@ -1047,6 +1062,8 @@ function renderSubmissions() {
       </div>
     </div>
   `;
+  $("submissionStatusFilter").value = submissionsStatusFilter;
+  $("submissionStatusFilter").onchange = e => { submissionsStatusFilter = e.target.value; renderSubmissions(); };
 }
 
 /* ---------- COMMITTEES ---------- */
