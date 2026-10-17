@@ -202,7 +202,28 @@ $("loginForm").onsubmit = async e => {
       $("loginPassword").value
     );
   } catch (err) {
-    setMessage(err.message, "error", true);
+    try {
+      const email = $("loginEmail").value.trim();
+      const buffId = $("loginPassword").value;
+      const sourceApp = firebase.initializeApp({
+        apiKey:"AIzaSyA2I8qSLHJg1672k51cCQaHSFMblB4yUew",
+        authDomain:"alphapsi-pointtracker.firebaseapp.com",
+        projectId:"alphapsi-pointtracker",
+        appId:"1:428688680473:web:e3e81709e8f4f1af8fac88"
+      }, "attendance-login-" + Date.now());
+      try {
+        const sourceCredential = await sourceApp.auth().signInWithEmailAndPassword(email,buffId);
+        const idToken = await sourceCredential.user.getIdToken();
+        const response = await fetch("https://us-central1-alpha-psi-committee-reports.cloudfunctions.net/exchangeAttendanceLogin", {
+          method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({idToken})
+        });
+        const result = await response.json();
+        if (!response.ok || !result.customToken) throw Error(result.error || "Attendance login could not be linked.");
+        await auth.signInWithCustomToken(result.customToken);
+      } finally {await sourceApp.auth().signOut().catch(()=>{});await sourceApp.delete();}
+    } catch (sourceError) {
+      setMessage("Committee sign-in failed. Attendance sign-in: " + sourceError.message, "error", true);
+    }
   }
 };
 
