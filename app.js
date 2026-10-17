@@ -195,35 +195,36 @@ $("logoutBtn").onclick = () => auth.signOut();
 
 $("loginForm").onsubmit = async e => {
   e.preventDefault();
-
+  const email = $("loginEmail").value.trim().toLowerCase();
+  const password = $("loginPassword").value;
   try {
-    await auth.signInWithEmailAndPassword(
-      $("loginEmail").value.trim(),
-      $("loginPassword").value
-    );
+    await auth.signInWithEmailAndPassword(email,password);
   } catch (err) {
+    if (!["auth/user-not-found","auth/invalid-credential"].includes(err.code)) {
+      setMessage(err.message,"error",true); return;
+    }
     try {
-      const email = $("loginEmail").value.trim();
-      const buffId = $("loginPassword").value;
+      const approval = await db.collection("approvedExecutives").doc(email).get();
+      if (!approval.exists || approval.data().active !== true) throw Error("An Admin must first import your Executive profile from Attendance.");
       const sourceApp = firebase.initializeApp({
         apiKey:"AIzaSyA2I8qSLHJg1672k51cCQaHSFMblB4yUew",
         authDomain:"alphapsi-pointtracker.firebaseapp.com",
         projectId:"alphapsi-pointtracker",
         appId:"1:428688680473:web:e3e81709e8f4f1af8fac88"
-      }, "attendance-login-" + Date.now());
+      },"attendance-verify-"+Date.now());
       try {
-        const sourceCredential = await sourceApp.auth().signInWithEmailAndPassword(email,buffId);
-        const idToken = await sourceCredential.user.getIdToken();
-        const response = await fetch("https://us-central1-alpha-psi-committee-reports.cloudfunctions.net/exchangeAttendanceLogin", {
-          method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({idToken})
+        await sourceApp.auth().signInWithEmailAndPassword(email,password);
+        const snap = await sourceApp.firestore().doc("chapters/alpha-psi").get();
+        const member = (snap.data()?.state?.members||[]).find(m=>String(m.email||"").toLowerCase()===email && m.role==="Executive Member");
+        if (!member) throw Error("Your Attendance account is not an Executive Member.");
+        await auth.createUserWithEmailAndPassword(email,password);
+        await db.doc("users/"+auth.currentUser.uid).set({
+          name:approval.data().name||member.name||email,email,role:"Executive Member",
+          committeeId:approval.data().committeeId||null,source:"attendance",
+          createdAt:firebase.firestore.FieldValue.serverTimestamp()
         });
-        const result = await response.json();
-        if (!response.ok || !result.customToken) throw Error(result.error || "Attendance login could not be linked.");
-        await auth.signInWithCustomToken(result.customToken);
       } finally {await sourceApp.auth().signOut().catch(()=>{});await sourceApp.delete();}
-    } catch (sourceError) {
-      setMessage("Committee sign-in failed. Attendance sign-in: " + sourceError.message, "error", true);
-    }
+    } catch (error) {setMessage(error.message,"error",true);}
   }
 };
 
@@ -1415,7 +1416,7 @@ function renderUsers() {
     .join("");
 
   $("usersView").innerHTML = `
-    <div class="panel"><h2>Import from Attendance Site</h2><p class="muted">Sign in with an Attendance Site Admin account to preview Executive Members. Importing profiles does not create Committee Reports login accounts.</p><form id="attendanceImportForm" class="form-grid"><label>Attendance Admin email<input id="attendanceImportEmail" type="email" autocomplete="off" required></label><label>Attendance Admin password<input id="attendanceImportPassword" type="password" autocomplete="off" required></label><button class="primary" type="submit">Preview Executive Roster</button></form><div id="attendanceImportPreview"></div></div>
+    <div class="panel"><h2>Import from Attendance Site</h2><p class="muted">Sign in with an Attendance Site Admin account to preview Executive Members. Import approved Executive profiles. Members can then create their Committee Reports login automatically using their Attendance credentials.</p><form id="attendanceImportForm" class="form-grid"><label>Attendance Admin email<input id="attendanceImportEmail" type="email" autocomplete="off" required></label><label>Attendance Admin password<input id="attendanceImportPassword" type="password" autocomplete="off" required></label><button class="primary" type="submit">Preview Executive Roster</button></form><div id="attendanceImportPreview"></div></div>
     <div class="panel">
 
       <div class="section-head">
@@ -1536,9 +1537,13 @@ function renderUsers() {
               name: member.name, email: member.email, attendanceId: member.attendanceId,
               committee: member.committee, importedAt: firebase.firestore.FieldValue.serverTimestamp()
             }, {merge:true});
+            await db.collection("approvedExecutives").doc(member.email).set({
+              name:member.name,email:member.email,attendanceId:member.attendanceId,
+              active:true,approvedAt:firebase.firestore.FieldValue.serverTimestamp()
+            },{merge:true});
             imported++;
           }
-          setMessage(imported + " Executive profiles imported. Create Committee Reports login accounts under Add Executive Member and assign committees.");
+          setMessage(imported + " Executive profiles imported. Members can now sign in with their Attendance credentials; assign their committees in Users.");
           $("attendanceImportPreview").innerHTML = "";
         } catch (error) { setMessage(error.message, "error"); confirm.disabled = false; }
       };
