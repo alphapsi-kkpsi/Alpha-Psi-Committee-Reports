@@ -20,12 +20,6 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isAdmin()
-        || (signedIn() && request.auth.uid == userId && request.auth.token.email_verified == true
-          && request.auth.token.email == request.resource.data.email
-          && request.resource.data.role == "Executive Member"
-          && request.resource.data.source == "attendance"
-          && exists(/databases/$(database)/documents/approvedExecutives/$(request.auth.token.email))
-          && get(/databases/$(database)/documents/approvedExecutives/$(request.auth.token.email)).data.active == true)
         || (signedIn()
           && request.auth.uid == userId
           && request.resource.data.role == "Admin"
@@ -36,12 +30,6 @@ service cloud.firestore {
 
     match /committees/{committeeId} {
       allow read: if isAdmin() || ownCommittee(committeeId);
-      allow create, update, delete: if isAdmin();
-    }
-
-    match /approvedExecutives/{email} {
-      allow get: if signedIn() && request.auth.token.email == email;
-      allow list: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 
