@@ -204,8 +204,6 @@ $("loginForm").onsubmit = async e => {
       setMessage(err.message,"error",true); return;
     }
     try {
-      const approval = await db.collection("approvedExecutives").doc(email).get();
-      if (!approval.exists || approval.data().active !== true) throw Error("An Admin must first import your Executive profile from Attendance.");
       const sourceApp = firebase.initializeApp({
         apiKey:"AIzaSyA2I8qSLHJg1672k51cCQaHSFMblB4yUew",
         authDomain:"alphapsi-pointtracker.firebaseapp.com",
@@ -217,12 +215,10 @@ $("loginForm").onsubmit = async e => {
         const snap = await sourceApp.firestore().doc("chapters/alpha-psi").get();
         const member = (snap.data()?.state?.members||[]).find(m=>String(m.email||"").toLowerCase()===email && m.role==="Executive Member");
         if (!member) throw Error("Your Attendance account is not an Executive Member.");
-        await auth.createUserWithEmailAndPassword(email,password);
-        await db.doc("users/"+auth.currentUser.uid).set({
-          name:approval.data().name||member.name||email,email,role:"Executive Member",
-          committeeId:approval.data().committeeId||null,source:"attendance",
-          createdAt:firebase.firestore.FieldValue.serverTimestamp()
-        });
+        const credential = await auth.createUserWithEmailAndPassword(email,password);
+        await credential.user.sendEmailVerification();
+        setMessage("Check your school email to verify your new account, then sign in again.","good",true);
+        await auth.signOut();
       } finally {await sourceApp.auth().signOut().catch(()=>{});await sourceApp.delete();}
     } catch (error) {setMessage(error.message,"error",true);}
   }
@@ -301,12 +297,21 @@ auth.onAuthStateChanged(async user => {
     const snap = await db.doc(`users/${user.uid}`).get();
 
     if (!snap.exists) {
+      if (user.emailVerified) {
+        try {
+          const approval = await db.collection("approvedExecutives").doc(user.email.toLowerCase()).get();
+          if (approval.exists && approval.data().active === true) {
+            await db.doc("users/"+user.uid).set({name:approval.data().name||user.email,email:user.email.toLowerCase(),role:"Executive Member",committeeId:approval.data().committeeId||null,source:"attendance",createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+            window.location.reload(); return;
+          }
+        } catch (error) {setMessage(error.message,"error",true);}
+      }
       if (!$("bootstrapForm").classList.contains("hidden")) {
         return;
       }
 
       setMessage(
-        "This account does not have approved Committee Reports access.",
+        user.emailVerified ? "An Admin must first import your Executive profile from Attendance." : "Verify your school email before signing in. Check your inbox.",
         "error",
         true
       );
