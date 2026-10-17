@@ -1394,6 +1394,7 @@ function renderUsers() {
     .join("");
 
   $("usersView").innerHTML = `
+    <div class="panel"><h2>Import from Attendance Site</h2><p class="muted">Sign in with an Attendance Site Admin account to preview Executive Members. Importing profiles does not create Committee Reports login accounts.</p><form id="attendanceImportForm" class="form-grid"><label>Attendance Admin email<input id="attendanceImportEmail" type="email" autocomplete="off" required></label><label>Attendance Admin password<input id="attendanceImportPassword" type="password" autocomplete="off" required></label><button class="primary" type="submit">Preview Executive Roster</button></form><div id="attendanceImportPreview"></div></div>
     <div class="panel">
 
       <div class="section-head">
@@ -1493,6 +1494,36 @@ function renderUsers() {
     </div>
   `;
 
+  $("attendanceImportForm").onsubmit = async e => {
+    e.preventDefault();
+    const button = e.target.querySelector("button"); button.disabled = true;
+    try {
+      const roster = await AttendanceImport.loadRoster($("attendanceImportEmail").value.trim(), $("attendanceImportPassword").value);
+      $("attendanceImportPassword").value = "";
+      const existingEmails = new Set(users.map(u => String(u.email || "").toLowerCase()));
+      const pending = roster.filter(m => !existingEmails.has(m.email));
+      $("attendanceImportPreview").innerHTML = "<h3>Executive Members found: " + roster.length + "</h3><p>" + pending.length + " new profiles; existing users will not be overwritten.</p>" + pending.map(m => "<p>" + esc(m.name) + " — " + esc(m.email) + "</p>").join("") + (pending.length ? '<button id="confirmAttendanceImport" class="primary" type="button">Import Profiles</button>' : "");
+      const confirm = $("confirmAttendanceImport");
+      if (confirm) confirm.onclick = async () => {
+        confirm.disabled = true;
+        try {
+          let imported = 0;
+          for (const member of pending) {
+            const id = "attendance-" + member.attendanceId.replace(/[^a-zA-Z0-9_-]/g, "");
+            if (!member.attendanceId) continue;
+            await db.collection("attendanceImports").doc(id).set({
+              name: member.name, email: member.email, attendanceId: member.attendanceId,
+              committee: member.committee, importedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, {merge:true});
+            imported++;
+          }
+          setMessage(imported + " Executive profiles imported. Create Committee Reports login accounts under Add Executive Member and assign committees.");
+          $("attendanceImportPreview").innerHTML = "";
+        } catch (error) { setMessage(error.message, "error"); confirm.disabled = false; }
+      };
+    } catch (error) { setMessage(error.message, "error"); }
+    finally { button.disabled = false; }
+  };
   document.querySelectorAll(".editUserBtn").forEach(button => button.onclick = async () => {
     const user = users.find(u => u.id === button.dataset.id);
     if (!user) return;
